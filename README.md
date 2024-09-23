@@ -28,18 +28,19 @@ python app.py
 
 Esto organiza todo el contenido del proyecto, desde la estructura de archivos hasta el código que debe ir en cada uno.
 
-/gps_web_app/
-│
-├── /templates/
-│   ├── index.html
-│   ├── distance_form.html
-│   ├── distance_result.html
-│   ├── triangulation_form.html
-│   └── map.html
-│
-├── /static/
-│   └── map.html
-│
-├── app.py
-├── requirements.txt
-└── README.md
+##   /gps_web_app/                        ##
+##   │                                    ##
+##   ├── /templates/                      ##
+##   │   ├── index.html                   ##
+##   │   ├── distance_form.html           ##
+##   │   ├── distance_result.html         ##
+##   │   ├── triangulation_form.html      ##
+##   │   └── map.html                     ##
+##   │                                    ##
+##   ├── /static/                         ##
+##   │   └── map.html                     ##
+##   │                                    ##
+##   ├── app.py                           ##
+##   ├── requirements.txt                 ##
+##   └── README.md                        ##
+###############################################################################################################################
