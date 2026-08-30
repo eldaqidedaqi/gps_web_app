@@ -1,246 +1,189 @@
-from flask import Flask, render_template, request, jsonify
-import math
-import folium
-from geopy.geocoders import Nominatim
-from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+GPS Web App with Flask
+Aplicación para buscar ubicaciones, calcular distancias y triangular posiciones GPS
+"""
+
 import os
-import time
+import math
+from flask import Flask, render_template, request, jsonify, redirect, url_for
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
+import logging
+from datetime import datetime
 
-app = Flask(__name__)
+# ============================================================================
+# CONFIGURACIÓN INICIAL
+# ============================================================================
 
-# Configurar geocodificador (offline con caché local)
-geolocator = Nominatim(user_agent="gps_web_app", timeout=10)
+# Crear aplicación Flask
+app = Flask(__name__, 
+            template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
+            static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 
-# Haversine formula to calculate distance between two lat/lon points
-def haversine(coord1, coord2):
-    R = 6371  # Radius of the Earth in km
-    lat1, lon1 = math.radians(coord1[0]), math.radians(coord1[1])
-    lat2, lon2 = math.radians(coord2[0]), math.radians(coord2[1])
-    
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    
-    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    
-    distance = R * c  # Distance in km
-    return round(distance, 2)
+# Configuración
+app.config['DEBUG'] = True
+app.config['TESTING'] = False
+app.config['ENV'] = 'development'
 
-# Triangulation function - Weighted centroid method
-def triangulate_position(p1, p2, p3, d1, d2, d3):
+# Configurar logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Inicializar geocodificador (Nominatim - OpenStreetMap)
+# user_agent es requerido por Nominatim
+geolocator = Nominatim(user_agent="gps_web_app_2026")
+
+# Constantes
+EARTH_RADIUS_KM = 6371.0  # Radio de la Tierra en kilómetros
+DEFAULT_TIMEOUT = 10  # Timeout para geocodificación
+
+logger.info("✅ GPS Web App inicializada correctamente")
+
+# ============================================================================
+# FUNCIONES AUXILIARES
+# ============================================================================
+
+def haversine_distance(lat1, lon1, lat2, lon2):
     """
-    Triangulate position using three reference points and distances.
-    Uses weighted centroid method based on inverse distances.
+    Calcula la distancia entre dos puntos usando la fórmula Haversine.
+    
+    Args:
+        lat1, lon1: Latitud y longitud del punto 1 (en grados)
+        lat2, lon2: Latitud y longitud del punto 2 (en grados)
+    
+    Returns:
+        Distancia en kilómetros (float)
     """
-    # Avoid division by zero
-    if d1 == 0 or d2 == 0 or d3 == 0:
-        d1 = max(d1, 0.001)
-        d2 = max(d2, 0.001)
-        d3 = max(d3, 0.001)
+    # Convertir a radianes
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
     
-    # Weight by inverse distance
-    weights = [1/d1, 1/d2, 1/d3]
-    total_weight = sum(weights)
+    # Diferencias
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
     
-    lat = (p1[0] * weights[0] + p2[0] * weights[1] + p3[0] * weights[2]) / total_weight
-    lon = (p1[1] * weights[0] + p2[1] * weights[1] + p3[1] * weights[2]) / total_weight
+    # Fórmula Haversine
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
+    c = 2 * math.asin(math.sqrt(a))
     
-    return round(lat, 6), round(lon, 6)
+    distance = EARTH_RADIUS_KM * c
+    return distance
 
-# Geocodify location using Geopy
+
 def geocode_location(location_name):
     """
-    Convert location name to coordinates using Geopy/Nominatim.
-    Returns tuple (lat, lon) or None if not found.
+    Convierte un nombre de ubicación a coordenadas GPS (lat, lon).
+    
+    Args:
+        location_name: Nombre de la ciudad o dirección
+    
+    Returns:
+        Tupla (lat, lon, location_name) o (None, None, None) si no se encuentra
     """
     try:
-        location = geolocator.geocode(location_name)
+        location = geolocator.geocode(location_name, timeout=DEFAULT_TIMEOUT)
         if location:
-            return location.latitude, location.longitude
-        return None
-    except (GeocoderTimedOut, GeocoderServiceError) as e:
-        print(f"Geocoding error: {e}")
-        return None
+            logger.info(f"✅ Ubicación encontrada: {location_name} -> ({location.latitude}, {location.longitude})")
+            return location.latitude, location.longitude, location.address
+        else:
+            logger.warning(f"⚠️ Ubicación no encontrada: {location_name}")
+            return None, None, None
+    except (GeocoderTimedOut, GeocoderUnavailable) as e:
+        logger.error(f"❌ Error al geocodificar {location_name}: {str(e)}")
+        return None, None, None
+    except Exception as e:
+        logger.error(f"❌ Error inesperado al geocodificar: {str(e)}")
+        return None, None, None
 
-# Create map with offline tiles
-def create_map(lat, lon, zoom=12, location_name="Location"):
+
+def trilateration(lat1, lon1, d1, lat2, lon2, d2, lat3, lon3, d3):
     """
-    Create a folium map with OpenStreetMap tiles (cached by browser).
+    Calcula la posición de un punto desconocido usando triangulación (trilateration).
+    Utiliza tres puntos de referencia y sus distancias al punto desconocido.
+    
+    Args:
+        lat1, lon1: Coordenadas del punto 1
+        d1: Distancia desde punto 1 al punto desconocido (km)
+        lat2, lon2: Coordenadas del punto 2
+        d2: Distancia desde punto 2 al punto desconocido (km)
+        lat3, lon3: Coordenadas del punto 3
+        d3: Distancia desde punto 3 al punto desconocido (km)
+    
+    Returns:
+        Tupla (lat_calculada, lon_calculada) o (None, None) si no se puede calcular
     """
-    map_obj = folium.Map(
-        location=[lat, lon],
-        zoom_start=zoom,
-        tiles='OpenStreetMap'  # Uses OSM tiles (cached by Folium)
-    )
+    try:
+        # Convertir distancias de km a grados (aproximado)
+        # 1 grado de latitud ≈ 111 km
+        # 1 grado de longitud ≈ 111 * cos(latitud) km
+        
+        d1_deg = d1 / 111.0
+        d2_deg = d2 / 111.0
+        d3_deg = d3 / 111.0
+        
+        # Usar método iterativo simple (centroide ponderado)
+        # Ponderación inversamente proporcional a la distancia
+        if d1 == 0 or d2 == 0 or d3 == 0:
+            return None, None
+        
+        weight1 = 1.0 / (d1 + 0.1)  # Evitar división por cero
+        weight2 = 1.0 / (d2 + 0.1)
+        weight3 = 1.0 / (d3 + 0.1)
+        
+        total_weight = weight1 + weight2 + weight3
+        
+        calc_lat = (lat1 * weight1 + lat2 * weight2 + lat3 * weight3) / total_weight
+        calc_lon = (lon1 * weight1 + lon2 * weight2 + lon3 * weight3) / total_weight
+        
+        logger.info(f"✅ Triangulación calculada: ({calc_lat}, {calc_lon})")
+        return calc_lat, calc_lon
     
-    # Add marker with popup
-    folium.Marker(
-        [lat, lon],
-        popup=f"<b>{location_name}</b><br>Lat: {lat:.4f}<br>Lon: {lon:.4f}",
-        tooltip=location_name
-    ).add_to(map_obj)
-    
-    # Add circle for reference
-    folium.Circle(
-        [lat, lon],
-        radius=500,
-        color='blue',
-        fill=True,
-        fillColor='blue',
-        fillOpacity=0.2
-    ).add_to(map_obj)
-    
-    return map_obj
+    except Exception as e:
+        logger.error(f"❌ Error en triangulación: {str(e)}")
+        return None, None
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if request.method == 'POST':
-        search_query = request.form.get('location', '').strip()
-        
-        if not search_query:
-            return render_template('index.html', error='Please enter a location')
-        
-        # Geocodify the location
-        coords = geocode_location(search_query)
-        
-        if coords is None:
-            return render_template('index.html', error=f'Location "{search_query}" not found. Try coordinates or a known place.')
-        
-        lat, lon = coords
-        
-        # Create map
-        map_obj = create_map(lat, lon, location_name=search_query)
-        map_obj.save('templates/map.html')
-        
-        return render_template('map.html', location=search_query, lat=lat, lon=lon)
-    
-    return render_template('index.html')
 
-@app.route('/distance', methods=['GET', 'POST'])
-def calculate_distance():
-    if request.method == 'POST':
-        try:
-            lat1 = float(request.form.get('lat1', 0))
-            lon1 = float(request.form.get('lon1', 0))
-            lat2 = float(request.form.get('lat2', 0))
-            lon2 = float(request.form.get('lon2', 0))
-            
-            if lat1 == 0 and lon1 == 0 and lat2 == 0 and lon2 == 0:
-                return render_template('distance_form.html', error='Please enter valid coordinates')
-            
-            distance = haversine((lat1, lon1), (lat2, lon2))
-            
-            # Create map with both points
-            map_obj = folium.Map(
-                location=[(lat1 + lat2) / 2, (lon1 + lon2) / 2],
-                zoom_start=12,
-                tiles='OpenStreetMap'
-            )
-            
-            # Add markers
-            folium.Marker([lat1, lon1], popup="Point 1", tooltip="Point 1", icon=folium.Icon(color='blue')).add_to(map_obj)
-            folium.Marker([lat2, lon2], popup="Point 2", tooltip="Point 2", icon=folium.Icon(color='red')).add_to(map_obj)
-            
-            # Draw line between points
-            folium.PolyLine(
-                locations=[[lat1, lon1], [lat2, lon2]],
-                color='green',
-                weight=3,
-                opacity=0.8
-            ).add_to(map_obj)
-            
-            map_obj.save('templates/distance_map.html')
-            
-            return render_template('distance_result.html', 
-                                 distance=distance, 
-                                 lat1=lat1, 
-                                 lon1=lon1, 
-                                 lat2=lat2, 
-                                 lon2=lon2)
-        except ValueError:
-            return render_template('distance_form.html', error='Please enter valid numbers for coordinates')
+def validate_coordinates(lat, lon):
+    """
+    Valida que las coordenadas estén dentro de rangos válidos.
     
-    return render_template('distance_form.html')
+    Args:
+        lat: Latitud (-90 a 90)
+        lon: Longitud (-180 a 180)
+    
+    Returns:
+        True si son válidas, False en caso contrario
+    """
+    try:
+        lat = float(lat)
+        lon = float(lon)
+        return -90 <= lat <= 90 and -180 <= lon <= 180
+    except (ValueError, TypeError):
+        return False
 
-@app.route('/triangulate', methods=['GET', 'POST'])
-def triangulate():
-    if request.method == 'POST':
-        try:
-            lat1 = float(request.form.get('lat1', 0))
-            lon1 = float(request.form.get('lon1', 0))
-            dist1 = float(request.form.get('dist1', 0))
-            
-            lat2 = float(request.form.get('lat2', 0))
-            lon2 = float(request.form.get('lon2', 0))
-            dist2 = float(request.form.get('dist2', 0))
-            
-            lat3 = float(request.form.get('lat3', 0))
-            lon3 = float(request.form.get('lon3', 0))
-            dist3 = float(request.form.get('dist3', 0))
-            
-            if (lat1 == 0 and lon1 == 0) or (lat2 == 0 and lon2 == 0) or (lat3 == 0 and lon3 == 0):
-                return render_template('triangulation_form.html', error='Please enter all reference points')
-            
-            if dist1 <= 0 or dist2 <= 0 or dist3 <= 0:
-                return render_template('triangulation_form.html', error='Distances must be greater than 0')
-            
-            result_lat, result_lon = triangulate_position(
-                (lat1, lon1), (lat2, lon2), (lat3, lon3),
-                dist1, dist2, dist3
-            )
-            
-            # Create map with reference points and result
-            map_obj = folium.Map(
-                location=[result_lat, result_lon],
-                zoom_start=12,
-                tiles='OpenStreetMap'
-            )
-            
-            # Add reference points
-            folium.Marker([lat1, lon1], popup=f"Ref 1 (dist: {dist1}km)", 
-                         tooltip="Reference Point 1", icon=folium.Icon(color='blue')).add_to(map_obj)
-            folium.Marker([lat2, lon2], popup=f"Ref 2 (dist: {dist2}km)", 
-                         tooltip="Reference Point 2", icon=folium.Icon(color='green')).add_to(map_obj)
-            folium.Marker([lat3, lon3], popup=f"Ref 3 (dist: {dist3}km)", 
-                         tooltip="Reference Point 3", icon=folium.Icon(color='purple')).add_to(map_obj)
-            
-            # Add triangulated position
-            folium.Marker([result_lat, result_lon], popup="Triangulated Position", 
-                         tooltip="Result", icon=folium.Icon(color='red', prefix='fa', icon='location-dot')).add_to(map_obj)
-            
-            # Draw circles for distances
-            folium.Circle([lat1, lon1], radius=dist1*1000, color='blue', fill=False, opacity=0.5).add_to(map_obj)
-            folium.Circle([lat2, lon2], radius=dist2*1000, color='green', fill=False, opacity=0.5).add_to(map_obj)
-            folium.Circle([lat3, lon3], radius=dist3*1000, color='purple', fill=False, opacity=0.5).add_to(map_obj)
-            
-            map_obj.save('templates/triangulation_map.html')
-            
-            return render_template('triangulation_result.html',
-                                 result_lat=result_lat,
-                                 result_lon=result_lon,
-                                 lat1=lat1, lon1=lon1, dist1=dist1,
-                                 lat2=lat2, lon2=lon2, dist2=dist2,
-                                 lat3=lat3, lon3=lon3, dist3=dist3)
-        except ValueError:
-            return render_template('triangulation_form.html', error='Please enter valid numbers')
-    
-    return render_template('triangulation_form.html')
 
-@app.route('/api/geocode', methods=['POST'])
-def api_geocode():
-    """API endpoint for geocoding locations"""
-    data = request.get_json()
-    location = data.get('location', '').strip()
+def format_distance_conversions(distance_km):
+    """
+    Convierte una distancia en km a varias unidades.
     
-    if not location:
-        return jsonify({'error': 'Location required'}), 400
+    Args:
+        distance_km: Distancia en kilómetros
     
-    coords = geocode_location(location)
-    
-    if coords:
-        return jsonify({'lat': coords[0], 'lon': coords[1]})
-    else:
-        return jsonify({'error': 'Location not found'}), 404
-
-if __name__ == "__main__":
-    app.run(debug=True)
+    Returns:
+        Diccionario con conversiones
+    """
+    return {
+        'km': round(distance_km, 2),
+        'meters': round(distance_km * 1000, 0),
+        'miles': round(distance_km * 0.621371, 2),
+        'nautical_miles': round(distance_km * 0.539957, 2),
+        'yards': round(distance_km * 1093.613, 0)
+    }
