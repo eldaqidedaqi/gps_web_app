@@ -8,7 +8,10 @@ Esta aplicación web permite:
 
 ## Instalación:
 1. Clona el repositorio: 
-git clone https://github.com/eldaqidedaqi/gps_web_app.git
+git clone https://github.com/eldaqidedaqi/gps_web_app.git && cd gps_web_app
+
+2. python3 -m venv gps_web_app
+source gps_web_app/bin/activate
 
 2. Instala las dependencias:
 pip install -r requirements.txt
