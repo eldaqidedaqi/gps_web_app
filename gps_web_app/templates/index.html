@@ -1,16 +1,221 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPS Tracker</title>
+    <title>GPS Web App - Buscar Ubicación</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+            text-align: center;
+        }
+        
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        
+        .nav-menu {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .nav-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .nav-btn:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .nav-btn.active {
+            background: #764ba2;
+            box-shadow: 0 5px 15px rgba(118, 75, 162, 0.4);
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+        
+        input[type="text"],
+        input[type="number"],
+        input[type="email"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+            font-family: inherit;
+        }
+        
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        input[type="email"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        button[type="submit"] {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        button[type="submit"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        button[type="submit"]:active {
+            transform: translateY(0);
+        }
+        
+        .error {
+            background: #fee;
+            border: 2px solid #f88;
+            color: #c33;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+        
+        .features {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 30px;
+        }
+        
+        .features h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        
+        .features ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .features li {
+            color: #666;
+            padding: 8px 0;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .features li:last-child {
+            border-bottom: none;
+        }
+        
+        .features li:before {
+            content: "✓ ";
+            color: #667eea;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+    </style>
 </head>
 <body>
-    <h1>Search for a Location</h1>
-    <form method="POST">
-        <input type="text" name="location" placeholder="Enter location">
-        <button type="submit">Search</button>
-    </form>
+    <div class="container">
+        <h1>🗺️ GPS Web App</h1>
+        <p class="subtitle">Herramienta de ubicaciones GPS</p>
+        
+        <div class="nav-menu">
+            <a href="/" class="nav-btn active">Buscar</a>
+            <a href="/distance" class="nav-btn">Distancia</a>
+            <a href="/triangulate" class="nav-btn">Triangulación</a>
+        </div>
+        
+        {% if error %}
+        <div class="error">⚠️ {{ error }}</div>
+        {% endif %}
+        
+        <form method="POST" action="/">
+            <div class="form-group">
+                <label for="location">Buscar Ubicación</label>
+                <input 
+                    type="text" 
+                    id="location" 
+                    name="location" 
+                    placeholder="Ej: Madrid, España o London, UK"
+                    required
+                    autocomplete="off"
+                >
+            </div>
+            <button type="submit">🔍 Buscar en Mapa</button>
+        </form>
+        
+        <div class="features">
+            <h3>📍 Características</h3>
+            <ul>
+                <li>Buscar ubicaciones por nombre</li>
+                <li>Ver mapa interactivo con OpenStreetMap</li>
+                <li>Calcular distancia entre dos puntos</li>
+                <li>Triangular posición con tres referencias</li>
+                <li>Visualización offline de mapas</li>
+            </ul>
+        </div>
+    </div>
 </body>
 </html>
-
